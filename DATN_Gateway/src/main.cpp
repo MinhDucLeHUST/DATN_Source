@@ -8,13 +8,14 @@
 #include <WebSocketsServer.h>
 #include <NBY_TwilioArduino.h>
 
-// Insert your network credentials
+/*Thiết lập tài khoản, mật khẩu cho Wifi*/
 #define WIFI_SSID "DucCoding"
 #define WIFI_PASSWORD "20082k36"
 
 // #define WIFI_SSID "P407"
 // #define WIFI_PASSWORD "17052000"
 
+/*Thiết lập địa chỉ cho Gateway*/
 WiFiServer server(80);
 WiFiClient client;
 
@@ -22,7 +23,7 @@ IPAddress AP_LOCAL_IP(192, 1, 1, 1);
 IPAddress AP_GATEWAY_IP(192, 1, 1, 1);
 IPAddress AP_NETWORK_MASK(255, 255, 255, 0);
 
-// Insert Firebase project API Key
+/*Thiết lập bảo mật cho Firebase*/
 #define API_KEY "AIzaSyBwmuegG8iA377Dz97NKz_9UOvhReVQJtk"
 #define USER_EMAIL "haiductlhp@gmail.com"
 #define USER_PASSWORD "Hai572001@@"
@@ -53,20 +54,8 @@ struct NodeLock
 	int status;
 };
 
-struct NodeSensor
-{
-	int nodeIndex = 3;
-	double humidity;
-	double temperature;
-	double pm25;
-	double pm10;
-	bool isWarningGas;
-	int status;
-	int idClient = -1;
-};
-
 NodeLock nodeLock;
-NodeSensor nodeSensor;
+
 
 uint32_t time1;
 uint32_t timeDelayCall;
@@ -83,12 +72,8 @@ void streamTimeoutCallback(bool timeout);
 void updateDataToFirebase(int nodeNeedUpdate);
 void print_string(string str);
 
-void handleDataReceiverFirebase(string path, String dataString);
-void handleDataReceiverFirebase(string path, bool dataBool);
-
 string receiveData();
 void handleDataReceiverNode(string dataReceiver);
-void sendDataToNode();
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
@@ -96,10 +81,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 	string dataReceiver(payload, payload + length);
 	switch (type)
 	{
-	case WStype_DISCONNECTED:
+	case WStype_DISCONNECTED:									//Sự kiện khi client ngắt kết nối
 		Serial.printf("[%u] Disconnected!\n", num);
 		break;
-	case WStype_CONNECTED:
+	case WStype_CONNECTED:										//Sự kiện khi client kết nối
 	{
 		IPAddress ip = webSocket.remoteIP(num);
 		numReceiver = num;
@@ -107,7 +92,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 		webSocket.sendTXT(num, "Connected");
 	}
 	break;
-	case WStype_TEXT:
+	case WStype_TEXT:											//Sự kiện nhận được khi nhận được thông điệp dạng Text
 		// Serial.printf("[%u] Message: %s\n", num, payload);
 
 		dataReceiverNode = dataReceiver;
@@ -141,7 +126,7 @@ void setup()
 	// updateDataToFirebase(2);
 	// Serial.println(ESP.getFreeHeap());
 }
-// NBY_Twilio twilio = NBY_Twilio(accountSid, authToken);
+
 void loop()
 {
 	webSocket.loop();
@@ -153,18 +138,17 @@ void loop()
 		dataReceiverNode  = "";
 		isDataReceiver = false;
 	}
-	if (nodeLock.isWarning == true || nodeSensor.isWarningGas == true)
+	if (nodeLock.isWarning == true)
 	{
 		if (millis() - timeDelayCall > 120000 || isFirstCall == true)
 		{
-			// twilio.makeCall(fromNumber, toNumber);
 			isFirstCall = false;
 			timeDelayCall = millis();
 		}
 	}
 }
 
-void initWiFi()
+void initWiFi()											//Khởi tạo Wifi 
 {
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 	Serial.print("Connecting to WiFi ..");
@@ -177,7 +161,7 @@ void initWiFi()
 	Serial.println();
 }
 
-void initFirebase()
+void initFirebase()										//Khởi tạo Firebase
 {
 	config.api_key = API_KEY;
 	auth.user.email = USER_EMAIL;
@@ -185,7 +169,7 @@ void initFirebase()
 	config.database_url = DATABASE_URL;
 	Firebase.reconnectWiFi(true);
 
-	config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
+	config.token_status_callback = tokenStatusCallback; 		// bắt trạng thái được phản hồi của token
 	config.max_token_generation_retry = 5;
 
 	Firebase.begin(&config, &auth);
@@ -196,6 +180,7 @@ void initFirebase()
 	Firebase.RTDB.setStreamCallback(&stream, streamCallback, streamTimeoutCallback);
 }
 
+/*Lấy data từ Firebase gửi về cho Client*/
 void streamCallback(FirebaseStream data)
 {
 	string path = data.dataPath().c_str();
@@ -203,7 +188,6 @@ void streamCallback(FirebaseStream data)
 	Serial.println(data.stringData());
 	String dataToSend = data.stringData();
 	webSocket.sendTXT(numReceiver, dataToSend);
-	// sendDataToNode(data.stringData())
 	Serial.println();
 }
 
@@ -215,6 +199,7 @@ void streamTimeoutCallback(bool timeout)
 		Serial.printf("error code: %d, reason: %s\n\n", stream.httpCode(), stream.errorReason().c_str());
 }
 
+/*Update data từ Client lên Firebase*/
 void updateDataToFirebase(int nodeNeedUpdate)
 {
 	FirebaseData fbdo;
@@ -230,17 +215,7 @@ void updateDataToFirebase(int nodeNeedUpdate)
 	fbdo.~FirebaseData();
 }
 
-void handleDataReceiverFirebase(string path, String dataString)
-{
-	Serial.println("Change password");
-	if (dataString.indexOf("status") != -1)
-		return;
-	nodeLock.password = dataString.c_str();
-	statusNodeUpdateData[2] = true;
-	statusNodeUpdateData[0] = true;
-	// print_string(nodeLock.password);
-}
-
+/*Phân tách Json nhận được để lấy data bỏ vào JsonDocument*/
 void handleDataReceiverNode(string dataReceiver)
 {
 	DynamicJsonDocument dataReceiverJson(1024);
@@ -252,11 +227,6 @@ void handleDataReceiverNode(string dataReceiver)
 	nodeLock.hasCameraRequest = dataReceiverJson[F("hasCameraRequest")].as<bool>();
 	nodeLock.isAntiThief = dataReceiverJson[F("isAntiThief")].as<bool>();
 	//updateDataToFirebase(2);
-}
-
-void sendDataToNode(String output)
-{
-	webSocket.sendTXT(numReceiver, output);
 }
 
 void print_string(string str)
